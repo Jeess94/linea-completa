@@ -4,29 +4,20 @@ import math
 import time
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(layout="wide", page_title="Simulador de Balance de Línea")
-st.title("🏭 Simulador de Precisión: Puntos de Caída")
-st.markdown("Ahora las bolsas (puntos) caen en la **posición exacta** dentro de la Cinta 7, respetando el layout.")
+st.set_page_config(layout="wide", page_title="Configurador Técnico de Línea")
+st.title("⚙️ Configurador de Ingeniería y Flujo")
+st.markdown("Configuración precisa: **Motor + Reductor + Rodillo** con grupos de control sincronizados.")
 
-# --- 1. DEFINICIÓN DEL LAYOUT ---
-# Nota: Ajusté levemente las coordenadas para que las caídas coincidan visualmente perfecto
+# --- 1. LAYOUT FÍSICO (Coordenadas) ---
 layout_props = {
-    # Sector Izquierda (Entradas)
     "Cinta 1":  {"x": 0,    "y": 8, "w": 3, "h": 1, "type": "cinta", "color": "#FFD700", "next": ["Cinta 3"], "dir": (1,0)},
     "Cinta 2":  {"x": 6,    "y": 8, "w": 3, "h": 1, "type": "cinta", "color": "#FFD700", "next": ["Cinta 4"], "dir": (1,0)},
-    
-    # Bajadas Verticales
     "Cinta 3":  {"x": 3.5,  "y": 4.5, "w": 1, "h": 3, "type": "cinta", "color": "#FFD700", "next": ["Cinta 7"], "dir": (0,-1)},
     "Cinta 4":  {"x": 5.0,  "y": 4.5, "w": 1, "h": 3, "type": "cinta", "color": "#FFD700", "next": ["Cinta 7"], "dir": (0,-1)},
-    
-    # Línea Principal (Recolectora)
-    # Cinta 7 empieza en X=2. Por tanto, Cinta 3 cae en el metro 1.5 (3.5 - 2) y Cinta 4 en el metro 3.0 (5 - 2)
     "Cinta 7":  {"x": 2,    "y": 2, "w": 8,  "h": 1.5, "type": "cinta", "color": "#FFD700", "next": ["Cinta 8"], "dir": (1,0)},
     "Cinta 8":  {"x": 10.5, "y": 2, "w": 1.5,"h": 1.5, "type": "cinta", "color": "#FFD700", "next": ["Cinta 9"], "dir": (1,0)},
     "Cinta 9":  {"x": 12.5, "y": 2, "w": 1.5,"h": 1.5, "type": "cinta", "color": "#FFD700", "next": ["Cinta 10"], "dir": (1,0)},
     "Cinta 10": {"x": 14.5, "y": 2, "w": 8,  "h": 1.5, "type": "cinta", "color": "#FFD700", "next": ["Cinta 11"], "dir": (1,0)},
-    
-    # Salida y Subida
     "Cinta 11": {"x": 23,   "y": 2, "w": 1.5, "h": 3.5, "type": "cinta", "color": "#FFD700", "next": ["Cinta 12"], "dir": (0,1)},
     "Cinta 12": {"x": 23,   "y": 6, "w": 2, "h": 2, "type": "cinta", "color": "#FFD700", "next": ["Tobogán"], "dir": (1,0)},
     "Tobogán":  {"x": 25.5, "y": 6.5,"w": 3, "h": 1, "type": "tobogan", "color": "#C0C0C0", "next": ["Cinta 13"], "dir": (1,0)},
@@ -34,47 +25,102 @@ layout_props = {
     "ROBOT":    {"x": 33,   "y": 6.5,"w": 1, "h": 1, "type": "robot", "color": "#4CAF50", "next": [], "dir": (0,0)},
 }
 
-# --- 2. CONFIGURACIÓN INICIAL ---
+# --- 2. DEFINICIÓN DE GRUPOS DE CONTROL ---
+# Aquí definimos qué cintas se editan juntas
+grupos_control = {
+    "Entrada (Cintas 1 y 2)": ["Cinta 1", "Cinta 2"],
+    "Bajada (Cintas 3 y 4)": ["Cinta 3", "Cinta 4"],
+    "Principal (Cinta 7)": ["Cinta 7"],
+    "Transferencia (Cinta 8)": ["Cinta 8"],
+    "Transferencia (Cinta 9)": ["Cinta 9"],
+    "Principal 2 (Cinta 10)": ["Cinta 10"],
+    "Elevador (Cinta 11)": ["Cinta 11"],
+    "Superior (Cinta 12)": ["Cinta 12"],
+    "Tobogán (Gravedad)": ["Tobogán"],
+    "Salida Final (Cinta 13)": ["Cinta 13"]
+}
+
+# --- 3. ESTADO INICIAL ---
 if 'equipos_config' not in st.session_state:
     st.session_state.equipos_config = {}
     for nombre, props in layout_props.items():
         is_cinta = props['type'] == 'cinta'
+        
+        # Valores por defecto
+        largo_def = props['w'] if props['dir'] in [(1,0), (-1,0)] else props['h']
+        if nombre == "Cinta 7": largo_def = 8.0 # Ajuste manual layout
+        
         st.session_state.equipos_config[nombre] = {
-            "largo_m": props['w'] if props['dir'] != (0,1) and props['dir'] != (0,-1) else props['h'], # Estimación automática
-            "ancho_mm": 500,
+            "largo_m": largo_def,
+            # DATOS MECÁNICOS NUEVOS
+            "motor_rpm": 1450 if is_cinta else 0,  # Estándar 4 polos
+            "reductor_i": 30 if is_cinta else 0,   # Relación i=30
             "rodillo_mm": 120 if is_cinta else 0,
-            "rpm": 30 if is_cinta else 0,
-            "velocidad_m_s": 0.3 # Un poco más rápido por defecto
+            "velocidad_m_s": 0.0 # Se calculará
         }
-    # Ajuste manual de largo para Cinta 7 para que coincida con el dibujo
-    st.session_state.equipos_config["Cinta 7"]["largo_m"] = 8.0 
 
-# --- 3. BARRA LATERAL ---
-st.sidebar.header("🎛️ Panel de Control")
-sec_entrada = st.sidebar.number_input("Entrada: 1 bolsa cada (seg)", value=2.0, step=0.5)
-target_robot = st.sidebar.number_input("Objetivo Robot (bolsas/h)", value=600)
+# --- 4. BARRA LATERAL (CONTROL AGRUPADO) ---
+st.sidebar.header("🎛️ Panel de Ingeniería")
+
+# Inputs Generales
+col_obj1, col_obj2 = st.sidebar.columns(2)
+sec_entrada = col_obj1.number_input("Entrada (seg/bolsa)", value=3.0, step=0.5)
+target_robot = col_obj2.number_input("Obj. Robot (b/h)", value=600)
 
 st.sidebar.divider()
-st.sidebar.subheader("🔧 Velocidades")
-equipo_sel = st.sidebar.selectbox("Configurar Equipo:", [k for k in layout_props.keys() if k != "ROBOT"])
-conf = st.session_state.equipos_config[equipo_sel]
+st.sidebar.subheader("🔧 Configuración de Grupo")
 
-if layout_props[equipo_sel]['type'] == 'cinta':
-    col1, col2 = st.sidebar.columns(2)
-    nuevo_rodillo = col1.number_input("Ø Rodillo (mm)", value=int(conf['rodillo_mm']), step=10)
-    nueva_rpm = col2.number_input("RPM", value=int(conf['rpm']), step=5)
-    v_ms = (math.pi * nuevo_rodillo * nueva_rpm) / 60000
-    st.sidebar.metric("Velocidad", f"{v_ms*60:.1f} m/min")
+# Selector de Grupo en lugar de cinta individual
+grupo_seleccionado = st.sidebar.selectbox("Seleccionar Grupo:", list(grupos_control.keys()))
+cintas_del_grupo = grupos_control[grupo_seleccionado]
+cinta_lider = cintas_del_grupo[0] # Tomamos los datos de la primera para mostrar en el input
+
+# Recuperar datos actuales del líder del grupo
+conf_actual = st.session_state.equipos_config[cinta_lider]
+tipo_equipo = layout_props[cinta_lider]['type']
+
+if tipo_equipo == "cinta":
+    # 1. MOTOR
+    st.sidebar.markdown("**1. Transmisión**")
+    c1, c2 = st.sidebar.columns(2)
+    new_rpm_motor = c1.number_input("RPM Motor", value=int(conf_actual['motor_rpm']), step=50, help="Ej: 1450, 2900")
+    new_reductor_i = c2.number_input("Reductor i", value=int(conf_actual['reductor_i']), step=5, help="Relación de reducción. Ej: 20, 40")
+    
+    # Cálculo intermedio: RPM Eje de salida
+    rpm_eje = new_rpm_motor / new_reductor_i if new_reductor_i > 0 else 0
+    st.sidebar.caption(f"🏁 Salida Reductor: **{rpm_eje:.1f} RPM**")
+
+    # 2. RODILLO
+    st.sidebar.markdown("**2. Dimensiones**")
+    new_rodillo = st.sidebar.number_input("Ø Rodillo Motriz (mm)", value=int(conf_actual['rodillo_mm']), step=5)
+    
+    # 3. RESULTADO
+    # V = (RPM_Eje * Pi * D_mm) / 1000 -> m/min
+    if new_rodillo > 0:
+        v_m_min = (rpm_eje * math.pi * new_rodillo) / 1000
+        v_m_s = v_m_min / 60
+    else:
+        v_m_min, v_m_s = 0, 0
+    
+    st.sidebar.success(f"🚀 Velocidad: **{v_m_min:.2f} m/min**")
+
+    # Actualizar TODAS las cintas del grupo con estos datos
+    for c in cintas_del_grupo:
+        st.session_state.equipos_config[c].update({
+            "motor_rpm": new_rpm_motor,
+            "reductor_i": new_reductor_i,
+            "rodillo_mm": new_rodillo,
+            "velocidad_m_s": v_m_s
+        })
+
 else:
-    v_ms = 1.5
-    nuevo_rodillo, nueva_rpm = 0, 0
-    st.sidebar.info("Gravedad (Estándar)")
+    # Caso Tobogán
+    st.sidebar.info("Caída por gravedad (Parámetros fijos para simulación)")
+    v_m_s = 1.2
+    for c in cintas_del_grupo:
+        st.session_state.equipos_config[c]["velocidad_m_s"] = v_m_s
 
-st.session_state.equipos_config[equipo_sel].update({
-    "rodillo_mm": nuevo_rodillo, "rpm": nueva_rpm, "velocidad_m_s": v_ms
-})
-
-# --- 4. MOTOR DE SIMULACIÓN CON OFFSET ---
+# --- 5. SIMULACIÓN (CON LÓGICA DE OFFSET) ---
 def simular_offset(layout, configs, intervalo, duracion=40, paso=0.1):
     frames = []
     bolsas = []
@@ -86,18 +132,14 @@ def simular_offset(layout, configs, intervalo, duracion=40, paso=0.1):
     for step in range(steps):
         t_acum += paso
         
-        # Generación de bolsas
+        # Generación
         if t_acum >= intervalo:
             t_acum = 0
             origen = "Cinta 1" if (id_counter % 2 == 0) else "Cinta 2"
             props = layout[origen]
             bolsas.append({
-                'id': id_counter,
-                'cinta': origen,
-                'dist': 0.0,      # Metros recorridos en la cinta actual
-                'x': props['x'],  # Coordenada visual X inicial
-                'y': props['y'] + props['h']/2, # Coordenada visual Y inicial
-                'estado': 'ok'
+                'id': id_counter, 'cinta': origen, 'dist': 0.0,
+                'x': props['x'], 'y': props['y'] + props['h']/2, 'estado': 'ok'
             })
             id_counter += 1
             
@@ -107,126 +149,117 @@ def simular_offset(layout, configs, intervalo, duracion=40, paso=0.1):
             cinta_props = layout[cinta_nom]
             cinta_conf = configs.get(cinta_nom, {'velocidad_m_s': 0, 'largo_m': 1})
             
-            # Avanzar distancia física
+            # Movimiento físico
             avance = cinta_conf['velocidad_m_s'] * paso
             b['dist'] += avance
             
-            # Chequear si llegó al final de la cinta actual
+            # Lógica de fin de cinta
             if b['dist'] >= cinta_conf['largo_m']:
                 next_list = cinta_props['next']
                 if not next_list or next_list[0] == "ROBOT":
-                    pass # Sale de la simulación o llega al robot
+                    pass # Sale
                 else:
                     nueva_cinta = next_list[0]
                     nueva_props = layout[nueva_cinta]
                     
-                    # --- AQUÍ ESTÁ LA MAGIA DEL OFFSET ---
-                    # Calculamos dónde cae la bolsa físicamente
-                    
-                    # 1. Posición visual de donde viene (Fin de cinta anterior)
-                    # Si es bajada vertical (C3, C4), tomamos su X central
-                    if cinta_props['dir'] == (0, -1): 
+                    # CÁLCULO DE OFFSET (CAÍDA EN POSICIÓN CORRECTA)
+                    if cinta_props['dir'] == (0, -1): # Bajada vertical
                         drop_x = cinta_props['x'] + (cinta_props['w'] / 2)
                     else:
                         drop_x = cinta_props['x'] + cinta_props['w']
                         
-                    # 2. Calculamos el offset en la nueva cinta
-                    # Si la nueva cinta es horizontal (como Cinta 7)
-                    if nueva_props['dir'] == (1, 0):
-                        # Offset = Coordenada X de caída - Coordenada X inicio nueva cinta
-                        offset_entrada = drop_x - nueva_props['x']
-                        # Seguridad: el offset no puede ser negativo
-                        offset_entrada = max(0.0, offset_entrada)
+                    if nueva_props['dir'] == (1, 0): # Recepción horizontal
+                        offset_entrada = max(0.0, drop_x - nueva_props['x'])
                     else:
-                        offset_entrada = 0.0 # Si no es horizontal compleja, empieza en 0
+                        offset_entrada = 0.0
                         
-                    # Aplicamos el cambio
                     b['cinta'] = nueva_cinta
-                    b['dist'] = offset_entrada # <--- ESTO COLOCA LA BOLSA EN EL LUGAR CORRECTO
+                    b['dist'] = offset_entrada
                     
-                    # Actualizamos coords visuales para que no haya "teletransportación" visual rara
+                    # Actualizar visual inmediatamente
                     if nueva_props['dir'] == (1,0):
                         b['y'] = nueva_props['y'] + nueva_props['h']/2
-                        b['x'] = nueva_props['x'] + offset_entrada # Visualmente empieza adelantada
+                        b['x'] = nueva_props['x'] + offset_entrada
                     
                     bolsas_activas.append(b)
             else:
-                # Movimiento Visual Normal dentro de la cinta
-                # Calculamos X e Y basado en la 'dist' actual y la dirección de la cinta
+                # Actualizar coordenadas visuales
                 if cinta_props['dir'] == (1, 0): # Horizontal Derecha
                     b['x'] = cinta_props['x'] + b['dist']
                     b['y'] = cinta_props['y'] + cinta_props['h']/2
                 elif cinta_props['dir'] == (0, -1): # Vertical Abajo
                     b['x'] = cinta_props['x'] + cinta_props['w']/2
-                    b['y'] = (cinta_props['y'] + cinta_props['h']) - b['dist'] # Ojo: coordenada Y crece hacia arriba en Plotly
+                    b['y'] = (cinta_props['y'] + cinta_props['h']) - b['dist'] 
                 elif cinta_props['dir'] == (0, 1): # Vertical Arriba
                     b['x'] = cinta_props['x'] + cinta_props['w']/2
                     b['y'] = cinta_props['y'] + b['dist']
                 
                 bolsas_activas.append(b)
                 
-        # Detección visual simple de choques
+        # Detección choques
         for i in range(len(bolsas_activas)):
             b1 = bolsas_activas[i]
-            b1['estado'] = 'ok' # Reset
+            b1['estado'] = 'ok'
             for j in range(i + 1, len(bolsas_activas)):
                 b2 = bolsas_activas[j]
-                # Si están en la misma cinta y muy cerca
                 if b1['cinta'] == b2['cinta'] and abs(b1['dist'] - b2['dist']) < 0.6:
                     b1['estado'] = 'choque'
                     b2['estado'] = 'choque'
                     
         bolsas = bolsas_activas
         
-        # Guardar Frame
-        colores = ['#FF0000' if b['estado'] == 'choque' else '#0000FF' for b in bolsas]
-        tamano = [12 if b['estado'] == 'choque' else 9 for b in bolsas]
+        colores = ['#D32F2F' if b['estado'] == 'choque' else '#1976D2' for b in bolsas]
+        tamano = [12 if b['estado'] == 'choque' else 8 for b in bolsas]
         
-        frames.append({
-            'x': [b['x'] for b in bolsas],
-            'y': [b['y'] for b in bolsas],
-            'c': colores,
-            's': tamano
-        })
+        frames.append({'x': [b['x'] for b in bolsas], 'y': [b['y'] for b in bolsas], 'c': colores, 's': tamano})
         
     return frames
 
-# Ejecutar lógica
+# Ejecutar
 datos_anim = simular_offset(layout_props, st.session_state.equipos_config, sec_entrada)
 
-# --- 5. VISUALIZACIÓN ---
-fig = go.Figure()
+# --- 6. VISUALIZACIÓN ---
+st.divider()
+col_main, col_info = st.columns([3, 1])
 
-# Dibujar Fondo (Cintas)
-for k, v in layout_props.items():
-    fig.add_shape(type="rect", x0=v['x'], y0=v['y'], x1=v['x']+v['w'], y1=v['y']+v['h'], 
-                  fillcolor=v['color'], line=dict(color="#333", width=1))
-    # Etiquetas
-    fig.add_annotation(x=v['x']+v['w']/2, y=v['y']+v['h']/2, text=f"<b>{k}</b>", 
-                       showarrow=False, font=dict(size=9, color="#444"))
+with col_main:
+    fig = go.Figure()
+    # Dibujar Cintas
+    for k, v in layout_props.items():
+        fig.add_shape(type="rect", x0=v['x'], y0=v['y'], x1=v['x']+v['w'], y1=v['y']+v['h'], 
+                      fillcolor=v['color'], line=dict(color="#444", width=1))
+        # Label centrado
+        fig.add_annotation(x=v['x']+v['w']/2, y=v['y']+v['h']/2, text=f"<b>{k}</b>", showarrow=False, font=dict(size=9))
 
-# Trace Inicial
-fig.add_trace(go.Scatter(x=[], y=[], mode="markers", marker=dict(color="blue", size=10)))
+    # Trace Bolsas
+    fig.add_trace(go.Scatter(x=[], y=[], mode="markers"))
 
-# Construir Frames
-plotly_frames = []
-for f in datos_anim:
-    plotly_frames.append(go.Frame(data=[
-        go.Scatter(x=f['x'], y=f['y'], mode="markers", marker=dict(color=f['c'], size=f['s']))
-    ]))
+    # Animación
+    plotly_frames = [go.Frame(data=[go.Scatter(x=f['x'], y=f['y'], mode="markers", marker=dict(color=f['c'], size=f['s']))]) for f in datos_anim]
+    fig.frames = plotly_frames
 
-fig.frames = plotly_frames
+    fig.update_layout(
+        height=550, xaxis=dict(visible=False, range=[-1, 35]), yaxis=dict(visible=False, range=[0, 10], scaleanchor="x"),
+        plot_bgcolor="#f4f4f4",
+        margin=dict(l=10, r=10, t=10, b=10),
+        updatemenus=[dict(type="buttons", showactive=False, x=0.05, y=0.95, buttons=[dict(label="▶️ PLAY", method="animate", args=[None, dict(frame=dict(duration=60, redraw=True), fromcurrent=True)])])]
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
-fig.update_layout(
-    width=1000, height=600,
-    xaxis=dict(visible=False, range=[-1, 35], fixedrange=True),
-    yaxis=dict(visible=False, range=[0, 10], scaleanchor="x", scaleratio=1, fixedrange=True),
-    plot_bgcolor="#e6e9ef",
-    title="Visualización de Flujo en Planta",
-    updatemenus=[dict(type="buttons", showactive=False,
-        buttons=[dict(label="▶️ Play Simulación", method="animate", 
-                      args=[None, dict(frame=dict(duration=50, redraw=True), fromcurrent=True)])])]
-)
-
-st.plotly_chart(fig, use_container_width=True)
-st.caption("🔵 Puntos Azules: Flujo Normal | 🔴 Puntos Rojos: Posible Colisión/Atasco")
+with col_info:
+    st.subheader("Datos Actuales")
+    st.info("Selecciona un grupo a la izquierda para ver su configuración técnica.")
+    
+    # Resumen rápido de velocidades clave
+    st.markdown("---")
+    st.markdown("**Monitor de Velocidades:**")
+    
+    def mostrar_dato(nombre):
+        c = st.session_state.equipos_config[nombre]
+        if layout_props[nombre]['type'] == 'cinta':
+            v_min = c['velocidad_m_s'] * 60
+            st.metric(nombre, f"{v_min:.1f} m/min", f"i={c['reductor_i']}")
+    
+    mostrar_dato("Cinta 1") # Representa entrada
+    mostrar_dato("Cinta 7") # Principal
+    mostrar_dato("Cinta 13") # Final
