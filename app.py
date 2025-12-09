@@ -40,10 +40,10 @@ if 'config_cintas' not in st.session_state:
             "velocidad": 1.5 
         }
 
-# --- 3. PANEL DE CONTROL (MODIFICADO) ---
+# --- 3. PANEL DE CONTROL ---
 st.sidebar.header("🎛️ Panel de Operación")
 
-# --- A) CONTROL DE CADENCIA (SIN LIMITACIONES) ---
+# --- A) CONTROL DE CADENCIA ---
 st.sidebar.subheader("1. Cadencia de Producción")
 
 # Input manual de Segundos
@@ -51,12 +51,10 @@ segundos_input = st.sidebar.number_input(
     "⏱️ Sale 1 bolsa cada (segundos):", 
     min_value=0.1, 
     max_value=60.0, 
-    value=5.0,  # Valor por defecto que pediste
-    step=0.5,
-    help="Ejemplo: Pon 5.0 si sale una bolsa cada 5 segundos."
+    value=5.0,
+    step=0.5
 )
 
-# Calculamos y mostramos la tasa horaria para referencia
 bolsas_por_hora = 3600 / segundos_input
 st.sidebar.info(f"Esto equivale a: **{bolsas_por_hora:.0f} Bolsas/Hora**")
 
@@ -67,12 +65,10 @@ cinta_sel = st.sidebar.selectbox("Seleccionar Cinta:", list(layout_props.keys())
 conf = st.session_state.config_cintas[cinta_sel]
 
 c1, c2 = st.sidebar.columns(2)
-# Inputs libres para velocidad y largo
 nv = c1.number_input(f"Velocidad (m/s)", value=float(conf['velocidad']), step=0.1, min_value=0.1)
 nl = c2.number_input(f"Largo (m)", value=float(conf['largo']), step=0.5, min_value=0.5)
 st.session_state.config_cintas[cinta_sel].update({"velocidad": nv, "largo": nl})
 
-# Duración extendida para ver todo el proceso
 duracion_sim = st.sidebar.slider("Duración de la prueba (seg)", 30, 200, 100)
 
 
@@ -88,14 +84,12 @@ def simular(layout, configs, intervalo, duracion=60, paso=0.1):
     for _ in range(steps):
         t_acum += paso
         
-        # --- GENERACIÓN BASADA EN TU INTERVALO ---
+        # --- GENERACIÓN ---
         if t_acum >= intervalo:
             t_acum = 0
-            # Alternar Cinta 1 y Cinta 2
             origen = "Cinta 1" if (id_count % 2 == 0) else "Cinta 2"
             p = layout[origen]
             
-            # Definir donde nace la bolsa
             start_x = p['x'] if p['dir'] == (1,0) else p['x'] + p['w']
             
             bolsas.append({
@@ -118,24 +112,21 @@ def simular(layout, configs, intervalo, duracion=60, paso=0.1):
             if b['dist'] >= c_conf['largo']:
                 siguientes = c_props['next']
                 if not siguientes:
-                    llegadas.append(1) # Salida exitosa
+                    llegadas.append(1)
                 else:
                     nueva_nom = siguientes[0]
                     nueva_props = layout[nueva_nom]
                     
-                    # Calcular punto de caída (Tetris logic)
                     if c_props['dir'] == (1,0): fin_x = c_props['x'] + c_props['w']
                     elif c_props['dir'] == (-1,0): fin_x = c_props['x']
                     else: fin_x = c_props['x'] + c_props['w']/2 
                     
-                    # Offset en nueva cinta
                     if nueva_props['dir'] == (1,0): offset = max(0.0, fin_x - nueva_props['x'])
                     else: offset = 0.0
                     
                     b['cinta'] = nueva_nom
                     b['dist'] = offset
                     
-                    # Actualizar visual
                     if nueva_props['dir'] == (1,0):
                         b['y'] = nueva_props['y'] + nueva_props['h']/2
                         b['x'] = nueva_props['x'] + offset
@@ -160,11 +151,12 @@ def simular(layout, configs, intervalo, duracion=60, paso=0.1):
                 
                 activos.append(b)
 
-        # Colisiones
+        # Colisiones - CORREGIDO AQUÍ
         for i in range(len(activos)):
             b1 = activos[i]
             b1['estado'] = 'ok'
             for j in range(i + 1, len(activos)):
+                b2 = activos[j] # <--- ESTA LÍNEA FALTABA
                 if b1['cinta'] == b2['cinta'] and abs(b1['dist'] - b2['dist']) < 0.8:
                     b1['estado'] = 'choque'
                     b2['estado'] = 'choque'
@@ -175,7 +167,7 @@ def simular(layout, configs, intervalo, duracion=60, paso=0.1):
         
     return frames, llegadas
 
-# Ejecutar con el input manual
+# Ejecutar
 datos, salidas = simular(layout_props, st.session_state.config_cintas, segundos_input, duracion_sim)
 
 # --- 5. VISUALIZACIÓN ---
@@ -202,4 +194,4 @@ with col2:
     if len(salidas) > 0:
         st.success(f"¡Salieron {len(salidas)} bolsas!")
     else:
-        st.warning("Simulando... (Ajusta la duración si tarda mucho)")
+        st.warning("Simulando...")
