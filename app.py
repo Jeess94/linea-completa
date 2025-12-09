@@ -51,7 +51,7 @@ modo = st.sidebar.radio("Control:", ["Tiempo (seg)", "Distancia (m)"], horizonta
 vel_ref = st.session_state.config_cintas["Cinta 1"]["velocidad"]
 
 if modo == "Tiempo (seg)":
-    val_t = st.sidebar.number_input("⏱️ Bolsa cada (s):", 3.0, step=0.5)
+    val_t = st.sidebar.number_input("⏱️ Bolsa cada (s):", 0.2, step=0.5)
     intervalo_real = val_t
 else:
     val_d = st.sidebar.number_input("📏 Separación (m):", 2.0, step=0.5)
@@ -202,3 +202,4 @@ with col2:
         st.success("✅ Flujo Completado")
     else:
         st.info("⏳ Esperando salida...")
+
