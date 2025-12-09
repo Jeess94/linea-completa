@@ -4,9 +4,9 @@ import math
 import time
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(layout="wide", page_title="Simulador Individual de Cintas")
-st.title("🏭 Configuración Detallada por Cinta")
-st.markdown("Selecciona cada cinta individualmente para cargar sus datos de placa (Motor, Reductor, Largo) y obtener la velocidad teórica.")
+st.set_page_config(layout="wide", page_title="Simulador Individual (m/s)")
+st.title("🏭 Configuración por Cinta (Metros/Segundo)")
+st.markdown("Configura Motor, Reductor y Rodillo. El sistema calcula la **Velocidad en m/s**.")
 
 # --- 1. LAYOUT FÍSICO (HORIZONTAL) ---
 layout_props = {
@@ -25,16 +25,15 @@ layout_props = {
 if 'equipos_config' not in st.session_state:
     st.session_state.equipos_config = {}
     for nombre, props in layout_props.items():
-        # Lógica para detectar largo visual por defecto
         es_transversal = props['dir'] == (0, 1) or props['dir'] == (0, -1)
         largo_visual = props['h'] if es_transversal else props['w']
         if nombre == "Cinta 7": largo_visual = 8.0 
         
         st.session_state.equipos_config[nombre] = {
             "largo_m": largo_visual,
-            "motor_rpm": 1450,    # Valor estándar
-            "reductor_i": 20,     # Reductor estándar
-            "rodillo_mm": 120,    # Rodillo necesario para el cálculo
+            "motor_rpm": 1450,
+            "reductor_i": 20,
+            "rodillo_mm": 120,
             "velocidad_m_s": 0.0
         }
 
@@ -48,30 +47,23 @@ target_output = st.sidebar.number_input("Target Salida (b/h)", value=600, step=5
 st.sidebar.divider()
 st.sidebar.subheader("🔧 Datos de Cinta (Individual)")
 
-# 1. SELECCIÓN INDIVIDUAL
+# SELECCIÓN
 lista_cintas = list(layout_props.keys())
 cinta_sel = st.sidebar.selectbox("Seleccionar Cinta:", lista_cintas)
-
-# Recuperar datos guardados
 conf = st.session_state.equipos_config[cinta_sel]
 
-# 2. INPUTS DE DATOS
 st.sidebar.markdown(f"**Editando: {cinta_sel}**")
 
-# Largo
+# INPUTS
 nuevo_largo = st.sidebar.number_input("📏 Largo de Cinta (m)", value=float(conf['largo_m']), step=0.5, format="%.2f")
 
-# Motor y Reductor
 c1, c2 = st.sidebar.columns(2)
-nuevo_motor_rpm = c1.number_input("RPM Motor", value=int(conf['motor_rpm']), step=50, help="Velocidad nominal del motor")
-nuevo_reductor = c2.number_input("Reductor (i)", value=int(conf['reductor_i']), step=5, help="Relación de reducción (ej. 20, 30)")
+nuevo_motor_rpm = c1.number_input("RPM Motor", value=int(conf['motor_rpm']), step=50)
+nuevo_reductor = c2.number_input("Reductor (i)", value=int(conf['reductor_i']), step=5)
 
-# Rodillo (Necesario para fórmula física)
 nuevo_rodillo = st.sidebar.number_input("Ø Rodillo Motriz (mm)", value=int(conf['rodillo_mm']), step=10)
 
-# 3. CÁLCULO DE VELOCIDAD TEÓRICA
-# Fórmula: RPM Salida = RPM Motor / Reductor
-# Velocidad = RPM Salida * Pi * Diámetro
+# CÁLCULO DE VELOCIDAD
 if nuevo_reductor > 0 and nuevo_rodillo > 0:
     rpm_salida = nuevo_motor_rpm / nuevo_reductor
     velocidad_teorica_m_min = (rpm_salida * math.pi * nuevo_rodillo) / 1000
@@ -80,11 +72,12 @@ else:
     velocidad_teorica_m_min = 0
     velocidad_teorica_m_s = 0
 
-# Mostrar Resultado Calculado
-st.sidebar.info(f"⚡ **Velocidad Teórica:**\n\n# **{velocidad_teorica_m_min:.2f} m/min**")
-st.sidebar.caption(f"(Equivale a {velocidad_teorica_m_s:.2f} m/s)")
+# --- CAMBIO AQUÍ: MOSTRAR m/s COMO PRINCIPAL ---
+st.sidebar.info(f"⚡ **Velocidad Teórica:**\n\n# **{velocidad_teorica_m_s:.3f} m/s**")
+st.sidebar.caption(f"(Equivale a {velocidad_teorica_m_min:.2f} m/min)")
+# ------------------------------------------------
 
-# 4. GUARDAR CAMBIOS (Solo para la cinta seleccionada)
+# GUARDAR
 st.session_state.equipos_config[cinta_sel].update({
     "largo_m": nuevo_largo,
     "motor_rpm": nuevo_motor_rpm,
@@ -124,26 +117,23 @@ def simular_flujo(layout, configs, intervalo, duracion=40, paso=0.1):
             cinta_props = layout[cinta_nom]
             cinta_conf = configs.get(cinta_nom, {'velocidad_m_s': 0, 'largo_m': 1})
             
-            # Movimiento Físico
             avance = cinta_conf['velocidad_m_s'] * paso
             b['dist'] += avance
             
-            # Transferencia
             if b['dist'] >= cinta_conf['largo_m']:
                 next_list = cinta_props['next']
                 if not next_list:
-                    llegadas_final.append(t_actual) # Sale del sistema
+                    llegadas_final.append(t_actual)
                 else:
                     nueva_cinta = next_list[0]
                     nueva_props = layout[nueva_cinta]
                     
-                    # Cálculo Offset de Transferencia
-                    if cinta_props['dir'] == (0, -1): # Transversal Bajando
+                    if cinta_props['dir'] == (0, -1): 
                         fin_x = cinta_props['x'] + (cinta_props['w'] / 2)
-                    else: # Horizontal
+                    else: 
                         fin_x = cinta_props['x'] + cinta_props['w']
                         
-                    if nueva_props['dir'] == (1, 0): # Entrando a Horizontal
+                    if nueva_props['dir'] == (1, 0): 
                         offset = max(0.0, fin_x - nueva_props['x'])
                     else:
                         offset = 0.0
@@ -151,7 +141,6 @@ def simular_flujo(layout, configs, intervalo, duracion=40, paso=0.1):
                     b['cinta'] = nueva_cinta
                     b['dist'] = offset
                     
-                    # Actualizar pos visual
                     if nueva_props['dir'] == (1,0): 
                         b['y'] = nueva_props['y'] + nueva_props['h']/2
                         b['x'] = nueva_props['x'] + offset
@@ -164,7 +153,6 @@ def simular_flujo(layout, configs, intervalo, duracion=40, paso=0.1):
 
                     bolsas_activas.append(b)
             else:
-                # Actualizar Visuales
                 if cinta_props['dir'] == (1, 0): 
                     b['x'] = cinta_props['x'] + b['dist']
                     b['y'] = cinta_props['y'] + cinta_props['h']/2
@@ -177,7 +165,6 @@ def simular_flujo(layout, configs, intervalo, duracion=40, paso=0.1):
                 
                 bolsas_activas.append(b)
                 
-        # Colisiones
         for i in range(len(bolsas_activas)):
             b1 = bolsas_activas[i]
             b1['estado'] = 'ok'
@@ -195,7 +182,7 @@ def simular_flujo(layout, configs, intervalo, duracion=40, paso=0.1):
         
     return frames, llegadas_final
 
-# Ejecutar Simulación
+# Ejecutar
 datos_anim, llegadas = simular_flujo(layout_props, st.session_state.equipos_config, sec_entrada)
 
 # --- 5. VISUALIZACIÓN ---
@@ -203,7 +190,6 @@ col_main, col_stats = st.columns([3, 1])
 
 with col_main:
     fig = go.Figure()
-    # Cintas (Fondo)
     for k, v in layout_props.items():
         fig.add_shape(type="rect", x0=v['x'], y0=v['y'], x1=v['x']+v['w'], y1=v['y']+v['h'], 
                       fillcolor=v['color'], line=dict(color="#444", width=1), layer="below")
@@ -237,12 +223,12 @@ with col_stats:
     st.metric("Salida C11 (b/h)", f"{ritmo:.0f}", delta=f"{delta:.0f}")
     
     st.markdown("---")
-    st.markdown("**Resumen de Velocidades (m/min):**")
+    # --- CAMBIO AQUÍ: TABLA RESUMEN EN m/s ---
+    st.markdown("**Resumen de Velocidades (m/s):**")
     
-    # Crear un pequeño dataframe o tabla para ver todas a la vez
     resumen = {}
     for k, v in st.session_state.equipos_config.items():
-        vel_min = v['velocidad_m_s'] * 60
-        resumen[k] = f"{vel_min:.1f}"
+        vel_ms = v['velocidad_m_s']
+        resumen[k] = f"{vel_ms:.3f}" # 3 decimales para ver diferencias pequeñas
     
     st.json(resumen)
