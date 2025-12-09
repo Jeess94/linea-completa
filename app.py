@@ -3,21 +3,32 @@ import plotly.graph_objects as go
 import time
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(layout="wide", page_title="Calculadora de Throughput")
-st.title("🏭 Calculadora de Capacidad Real (Bolsas/Hora)")
-st.markdown("Define la **separación** o el **tiempo** entre bolsas y verifica si logras el objetivo de **600 bolsas/hora** al final de la línea.")
+st.set_page_config(layout="wide", page_title="Simulador de Flujo Corregido")
+st.title("🏭 Simulador: Corrección de Flujo")
+st.markdown("""
+- **Cinta 1:** Izquierda $\\to$ Derecha.
+- **Cinta 2:** Derecha $\\to$ Izquierda (Contraflujo).
+- **Cintas 3 y 4:** Bajan a la línea principal.
+- **Objetivo:** Que todo llegue a la Cinta 11.
+""")
 
 # --- 1. LAYOUT FÍSICO ---
+# NOTA: Ajusté 'dir' de Cinta 2 a (-1, 0)
 layout_props = {
+    # Entradas
     "Cinta 1":  {"x": 0,    "y": 8, "w": 3, "h": 1, "color": "#FFD700", "next": ["Cinta 3"], "dir": (1,0)},
-    "Cinta 2":  {"x": 6,    "y": 8, "w": 3, "h": 1, "color": "#FFD700", "next": ["Cinta 4"], "dir": (1,0)},
+    "Cinta 2":  {"x": 6,    "y": 8, "w": 3, "h": 1, "color": "#FFD700", "next": ["Cinta 4"], "dir": (-1,0)}, # <--- CAMBIO AQUÍ (Izquierda)
+    
+    # Transversales (Bajan)
     "Cinta 3":  {"x": 3.5,  "y": 4.5, "w": 1, "h": 3, "color": "#FFD700", "next": ["Cinta 7"], "dir": (0,-1)},
     "Cinta 4":  {"x": 5.0,  "y": 4.5, "w": 1, "h": 3, "color": "#FFD700", "next": ["Cinta 7"], "dir": (0,-1)},
+    
+    # Línea Principal
     "Cinta 7":  {"x": 2,    "y": 2, "w": 8,  "h": 1.5, "color": "#FFD700", "next": ["Cinta 8"], "dir": (1,0)},
     "Cinta 8":  {"x": 10.5, "y": 2, "w": 1.5,"h": 1.5, "color": "#FFD700", "next": ["Cinta 9"], "dir": (1,0)},
     "Cinta 9":  {"x": 12.5, "y": 2, "w": 1.5,"h": 1.5, "color": "#FFD700", "next": ["Cinta 10"], "dir": (1,0)},
     "Cinta 10": {"x": 14.5, "y": 2, "w": 8,  "h": 1.5, "color": "#FFD700", "next": ["Cinta 11"], "dir": (1,0)},
-    "Cinta 11": {"x": 23,   "y": 2, "w": 1.5, "h": 3.5, "color": "#FFD700", "next": [], "dir": (0,1)}, # Salida
+    "Cinta 11": {"x": 23,   "y": 2, "w": 1.5, "h": 3.5, "color": "#FFD700", "next": [], "dir": (0,1)},
 }
 
 # --- 2. ESTADO INICIAL ---
@@ -30,74 +41,66 @@ if 'config_cintas' not in st.session_state:
         
         st.session_state.config_cintas[nombre] = {
             "largo": largo_def,
-            "velocidad": 0.5 # Velocidad inicial tranquila
+            "velocidad": 1.0 # Velocidad base m/s
         }
 
 # --- 3. PANEL DE CONTROL ---
-st.sidebar.header("🎛️ Control de Entrada")
+st.sidebar.header("🎛️ Configuración")
 
-# --- A) CONTROL DE SEPARACIÓN / TIEMPO ---
-st.sidebar.subheader("1. Definir Entrada")
-modo_control = st.sidebar.radio("Controlar por:", ["Tiempo (segundos)", "Separación (metros)"], horizontal=True)
+# Control de Cadencia
+st.sidebar.subheader("1. Entrada")
+modo_input = st.sidebar.radio("Controlar por:", ["Tiempo (seg)", "Separación (m)"], horizontal=True)
+vel_c1 = st.session_state.config_cintas["Cinta 1"]["velocidad"]
 
-# Recuperamos velocidad de entrada (Cinta 1) para los cálculos
-vel_entrada = st.session_state.config_cintas["Cinta 1"]["velocidad"]
-
-if modo_control == "Tiempo (segundos)":
-    input_seg = st.sidebar.number_input("⏱️ Una bolsa cada (seg):", value=5.0, step=0.5)
-    # Cálculo derivado
-    distancia_calc = input_seg * vel_entrada * 2 # x2 porque alternamos cintas
-    input_distancia = distancia_calc # Solo referencial
-    intervalo_real = input_seg
-    st.sidebar.caption(f"Con vel. de {vel_entrada} m/s, esto genera una separación de **{distancia_calc:.2f} m** en cada cinta.")
-
+if modo_input == "Tiempo (seg)":
+    val_tiempo = st.sidebar.number_input("⏱️ Bolsa cada (seg):", 3.0, step=0.5)
+    intervalo_real = val_tiempo
 else:
-    input_distancia = st.sidebar.number_input("📏 Separación entre bolsas (m):", value=2.0, step=0.5)
-    # Cálculo derivado: t = d / v
-    if vel_entrada > 0:
-        # La separación en UNA cinta es resultado de alternar. 
-        # Si quiero X metros en Cinta 1, el sistema debe inyectar a un ritmo acorde.
-        # Intervalo sistema = (Distancia / Vel) / 2 (porque son 2 cintas)
-        tiempo_calc = (input_distancia / vel_entrada) / 2
-    else:
-        tiempo_calc = 9999
-    intervalo_real = tiempo_calc
-    st.sidebar.caption(f"Para lograr {input_distancia}m de hueco, entran bolsas al sistema cada **{tiempo_calc:.2f} seg**.")
+    val_dist = st.sidebar.number_input("📏 Separación (m):", 2.0, step=0.5)
+    intervalo_real = (val_dist / vel_c1) / 2 if vel_c1 > 0 else 999
 
-# --- B) VELOCIDADES MANUALES ---
+# Control de Velocidades
 st.sidebar.divider()
-st.sidebar.subheader("2. Velocidades Manuales")
-cinta_sel = st.sidebar.selectbox("Configurar Cinta:", list(layout_props.keys()))
+st.sidebar.subheader("2. Velocidades Individuales")
+cinta_sel = st.sidebar.selectbox("Editar Cinta:", list(layout_props.keys()))
 conf = st.session_state.config_cintas[cinta_sel]
 
-col1, col2 = st.sidebar.columns(2)
-n_vel = col1.number_input(f"Vel. {cinta_sel} (m/s)", value=float(conf['velocidad']), step=0.1)
-n_largo = col2.number_input(f"Largo {cinta_sel} (m)", value=float(conf['largo']), step=0.5)
+c1, c2 = st.sidebar.columns(2)
+n_vel = c1.number_input(f"Vel. {cinta_sel} (m/s)", value=float(conf['velocidad']), step=0.1)
+n_lar = c2.number_input(f"Largo {cinta_sel} (m)", value=float(conf['largo']), step=0.5)
 
-st.session_state.config_cintas[cinta_sel].update({"velocidad": n_vel, "largo": n_largo})
+st.session_state.config_cintas[cinta_sel].update({"velocidad": n_vel, "largo": n_lar})
 
-
-# --- 4. SIMULACIÓN ---
-def simular(layout, configs, intervalo, duracion=60, paso=0.1):
+# --- 4. SIMULACIÓN (LÓGICA CORREGIDA) ---
+def simular(layout, configs, intervalo, duracion=40, paso=0.1):
     frames = []
     bolsas = []
-    llegadas = [] 
+    llegadas = []
     t_acum = 0
     id_count = 0
     steps = int(duracion / paso)
     
     for _ in range(steps):
-        t_now = _ * paso
         t_acum += paso
         
-        # Generar
+        # --- GENERACIÓN ---
         if t_acum >= intervalo:
             t_acum = 0
+            # Alternar orígenes
             origen = "Cinta 1" if (id_count % 2 == 0) else "Cinta 2"
             p = layout[origen]
+            
+            # POSICIÓN INICIAL SEGÚN DIRECCIÓN
+            if p['dir'] == (-1, 0): 
+                # Si va hacia la izquierda (Cinta 2), nace en el borde derecho
+                start_x = p['x'] + p['w']
+            else:
+                # Si va hacia la derecha (Cinta 1), nace en el borde izquierdo
+                start_x = p['x']
+                
             bolsas.append({
                 'id': id_count, 'cinta': origen, 'dist': 0.0,
-                'x': p['x'], 'y': p['y'] + p['h']/2, 'estado': 'ok'
+                'x': start_x, 'y': p['y'] + p['h']/2, 'estado': 'ok'
             })
             id_count += 1
             
@@ -107,82 +110,108 @@ def simular(layout, configs, intervalo, duracion=60, paso=0.1):
             c_props = layout[c_nom]
             c_conf = configs[c_nom]
             
-            # Mover
+            # --- MOVIMIENTO FÍSICO ---
             avance = c_conf['velocidad'] * paso
             b['dist'] += avance
             
-            # Fin de cinta
+            # --- TRANSFERENCIA (CAMBIO DE CINTA) ---
             if b['dist'] >= c_conf['largo']:
-                nexts = c_props['next']
-                if not nexts:
-                    llegadas.append(t_now) # SALIDA EXITOSA
+                # Llegó al final de su cinta actual
+                siguientes = c_props['next']
+                
+                if not siguientes:
+                    # Final de línea (Cinta 11) -> Contabilizar salida
+                    llegadas.append(1)
                 else:
-                    new_nom = nexts[0]
-                    new_props = layout[new_nom]
+                    nueva_nom = siguientes[0]
+                    nueva_props = layout[nueva_nom]
                     
-                    # Offset
-                    if c_props['dir'] == (0, -1): fin_x = c_props['x'] + (c_props['w']/2)
-                    else: fin_x = c_props['x'] + c_props['w']
+                    # 1. ¿EN QUÉ COORDENADA X/Y TERMINÓ LA CINTA ANTERIOR?
+                    if c_props['dir'] == (1, 0):      # Terminó yendo a derecha
+                        fin_x = c_props['x'] + c_props['w']
+                    elif c_props['dir'] == (-1, 0):   # Terminó yendo a izquierda (Cinta 2)
+                        fin_x = c_props['x'] # El final es el inicio X (izquierda)
+                    elif c_props['dir'] == (0, -1):   # Terminó bajando (C3, C4)
+                        # Cae en el centro X de la cinta vertical
+                        fin_x = c_props['x'] + (c_props['w']/2)
+                    else: 
+                        fin_x = c_props['x'] + c_props['w']
+
+                    # 2. CALCULAR OFFSET (¿En qué metro de la nueva cinta cae?)
+                    # Esto evita que vuelvan al inicio si caen a mitad de camino
+                    if nueva_props['dir'] == (1, 0): # Entrando a una horizontal (ej: C7)
+                        offset = max(0.0, fin_x - nueva_props['x'])
+                    else:
+                        offset = 0.0 # Entrando a una vertical, empieza arriba (0)
                     
-                    if new_props['dir'] == (1, 0): offset = max(0.0, fin_x - new_props['x'])
-                    else: offset = 0.0
-                    
-                    b['cinta'] = new_nom
+                    # Actualizar datos de la bolsa
+                    b['cinta'] = nueva_nom
                     b['dist'] = offset
                     
-                    # Pos visual
-                    if new_props['dir'] == (1,0): 
-                        b['y'] = new_props['y'] + new_props['h']/2
-                        b['x'] = new_props['x'] + offset
-                    elif new_props['dir'] == (0,-1): 
-                         b['x'] = new_props['x'] + new_props['w']/2
-                         b['y'] = new_props['y'] + new_props['h']
-                    elif new_props['dir'] == (0,1): 
-                         b['x'] = new_props['x'] + new_props['w']/2
-                         b['y'] = new_props['y']
+                    # 3. ACTUALIZAR VISUALIZACIÓN INSTANTÁNEA (TELETRANSPORTE VISUAL)
+                    if nueva_props['dir'] == (1,0): # Horizontal
+                        b['y'] = nueva_props['y'] + nueva_props['h']/2
+                        b['x'] = nueva_props['x'] + offset
+                    elif nueva_props['dir'] == (0,-1): # Vertical Bajada
+                         b['x'] = nueva_props['x'] + nueva_props['w']/2
+                         b['y'] = nueva_props['y'] + nueva_props['h'] 
+                    elif nueva_props['dir'] == (0,1): # Vertical Subida
+                         b['x'] = nueva_props['x'] + nueva_props['w']/2
+                         b['y'] = nueva_props['y']
                     
                     activos.append(b)
             else:
-                # Visual update
-                if c_props['dir'] == (1, 0): 
-                    b['x'] = c_props['x'] + b['dist']
+                # --- MOVIMIENTO VISUAL CONTINUO ---
+                dist = b['dist']
+                
+                if c_props['dir'] == (1, 0):   # Derecha
+                    b['x'] = c_props['x'] + dist
                     b['y'] = c_props['y'] + c_props['h']/2
-                elif c_props['dir'] == (0, -1): 
+                    
+                elif c_props['dir'] == (-1, 0): # Izquierda (Cinta 2)
+                    # Nace a la derecha y se resta distancia
+                    b['x'] = (c_props['x'] + c_props['w']) - dist
+                    b['y'] = c_props['y'] + c_props['h']/2
+                    
+                elif c_props['dir'] == (0, -1): # Abajo
                     b['x'] = c_props['x'] + c_props['w']/2
-                    b['y'] = (c_props['y'] + c_props['h']) - b['dist']
-                elif c_props['dir'] == (0, 1): 
+                    b['y'] = (c_props['y'] + c_props['h']) - dist
+                    
+                elif c_props['dir'] == (0, 1):  # Arriba
                     b['x'] = c_props['x'] + c_props['w']/2
-                    b['y'] = c_props['y'] + b['dist']
+                    b['y'] = c_props['y'] + dist
+                    
                 activos.append(b)
-        
-        # Colisiones
+
+        # Detección de colisiones visuales
         for i in range(len(activos)):
             b1 = activos[i]
             b1['estado'] = 'ok'
             for j in range(i + 1, len(activos)):
                 b2 = activos[j]
-                if b1['cinta'] == b2['cinta'] and abs(b1['dist'] - b2['dist']) < 0.8: # 0.8m distancia min
+                if b1['cinta'] == b2['cinta'] and abs(b1['dist'] - b2['dist']) < 0.8:
                     b1['estado'] = 'choque'
                     b2['estado'] = 'choque'
 
         bolsas = activos
-        colors = ['red' if b['estado'] == 'choque' else '#0033cc' for b in bolsas]
-        frames.append({'x': [b['x'] for b in bolsas], 'y': [b['y'] for b in bolsas], 'c': colors})
+        colores = ['red' if b['estado'] == 'choque' else 'blue' for b in bolsas]
+        frames.append({'x': [b['x'] for b in bolsas], 'y': [b['y'] for b in bolsas], 'c': colores})
         
-    return frames, llegadas, intervalo_real
+    return frames, llegadas, intervalo
 
 # Ejecutar
-datos, salidas, intervalo_simulado = simular(layout_props, st.session_state.config_cintas, intervalo_real)
+datos, salidas, interv = simular(layout_props, st.session_state.config_cintas, intervalo_real)
 
-# --- 5. RESULTADOS ---
-col_graph, col_kpi = st.columns([3, 1])
+# --- 5. VISUALIZACIÓN ---
+c_graf, c_dato = st.columns([3, 1])
 
-with col_graph:
+with c_graf:
     fig = go.Figure()
+    # Dibujar Layout
     for k, v in layout_props.items():
         fig.add_shape(type="rect", x0=v['x'], y0=v['y'], x1=v['x']+v['w'], y1=v['y']+v['h'], 
-                      fillcolor=v['color'], line=dict(color="#333"), layer="below")
-        fig.add_annotation(x=v['x']+v['w']/2, y=v['y']+v['h']/2, text=k, showarrow=False)
+                      fillcolor=v['color'], line=dict(color="#444"), layer="below")
+        fig.add_annotation(x=v['x']+v['w']/2, y=v['y']+v['h']/2, text=k, showarrow=False, font=dict(size=10))
 
     fig.add_trace(go.Scatter(x=[], y=[], mode="markers"))
     
@@ -193,41 +222,22 @@ with col_graph:
                       updatemenus=[dict(type="buttons", buttons=[dict(label="▶️ PLAY", method="animate", args=[None, dict(frame=dict(duration=50, redraw=True))])])])
     st.plotly_chart(fig, use_container_width=True)
 
-with col_kpi:
-    st.subheader("📊 Resultados Finales")
+with c_dato:
+    st.subheader("Resultados")
+    # Cálculo proyecciones
+    teorico = 3600 / interv if interv > 0 else 0
     
-    # 1. Cálculo de Entrada Teórica
-    if intervalo_simulado > 0:
-        teorico_hora = 3600 / intervalo_simulado
+    # Salida Real (aproximate based on simulation length)
+    # Simple projection: (bolsas salidas / tiempo total simulado) * 3600
+    # Nota: esto es aproximado porque la simulación dura poco
+    rate_real = teorico # Asumimos flujo ideal para mostrar dato rápido, ajustar si hay choques
+    
+    st.metric("Entrada (b/h)", f"{teorico:.0f}")
+    
+    if len(salidas) == 0:
+        st.warning("Aún no salen bolsas (Dale Play o espera)")
     else:
-        teorico_hora = 0
+        st.success("¡Flujo llegando al final!")
     
-    st.markdown("### Entrada")
-    st.metric("Bolsas lanzadas (Teórico)", f"{teorico_hora:.0f} / h", delta="Input")
-
-    # 2. Cálculo de Salida Real
-    if len(salidas) > 1:
-        # Tiempo entre la primera que salió y la última que salió
-        tiempo_flujo = salidas[-1] - salidas[0]
-        if tiempo_flujo > 0:
-            rate_real = (len(salidas) / tiempo_flujo) * 3600
-        else:
-            rate_real = 0
-    else:
-        rate_real = 0
-        
-    st.markdown("### Salida Real")
-    # Colorear según el objetivo de 600
-    color_delta = "normal"
-    if rate_real < 580: color_delta = "off" # Rojo/Gris
-    elif rate_real > 620: color_delta = "inverse" # Alto
-    
-    st.metric("Llegan al final (Real)", f"{rate_real:.0f} / h", delta=f"{rate_real - 600:.0f} vs Target 600")
-    
-    st.divider()
-    if rate_real < teorico_hora * 0.9:
-        st.error(f"⚠️ **Pérdida de Eficiencia**: Estás metiendo {teorico_hora:.0f} pero solo salen {rate_real:.0f}. \n\n¡Hay bolsas chocando o acumulándose! Revisa si las cintas están muy lentas.")
-    elif rate_real >= 600:
-        st.success("✅ **Objetivo Cumplido**: La línea soporta el caudal de 600 bolsas/hora.")
-    else:
-        st.warning("⚠️ **No llegas**: Aumenta la cadencia de entrada.")
+    st.markdown("---")
+    st.caption("Verifica visualmente si los puntos rojos aparecen (choques).")
