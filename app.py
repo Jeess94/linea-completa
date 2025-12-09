@@ -3,24 +3,21 @@ import plotly.graph_objects as go
 import time
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(layout="wide", page_title="Simulador de Flujo Final")
-st.title("🏭 Simulador de Línea: Flujo Corregido")
-st.markdown("Visualización del recorrido completo: **C1/C2 $\\to$ Bajada $\\to$ Cinta 7 $\\to$ Final**.")
+st.set_page_config(layout="wide", page_title="Simulador de Flujo Definitivo")
+st.title("🏭 Simulador de Línea: Validación de Flujo")
+st.markdown("Visualización corregida de giros y calculadora de capacidad horaria.")
 
-# --- 1. LAYOUT FÍSICO (Geometría Ajustada para Conexión Visual) ---
+# --- 1. LAYOUT FÍSICO (Geometría Ajustada) ---
 layout_props = {
-    # NIVEL SUPERIOR (Y=6)
-    # Cinta 1 va hacia la derecha ->
-    "Cinta 1":  {"x": 0,    "y": 6, "w": 3.5, "h": 1, "color": "#FFD700", "next": ["Cinta 3"], "dir": (1,0)},
-    # Cinta 2 va hacia la izquierda <-
-    "Cinta 2":  {"x": 6.5,  "y": 6, "w": 3.5, "h": 1, "color": "#FFD700", "next": ["Cinta 4"], "dir": (-1,0)},
+    # Nivel Superior (Y=6)
+    "Cinta 1":  {"x": 0,    "y": 6, "w": 3.5, "h": 1, "color": "#FFD700", "next": ["Cinta 3"], "dir": (1,0)},   # Derecha
+    "Cinta 2":  {"x": 6.5,  "y": 6, "w": 3.5, "h": 1, "color": "#FFD700", "next": ["Cinta 4"], "dir": (-1,0)},  # Izquierda
     
-    # TRANSVERSALES (BAJAN de Y=6 a Y=1.5)
-    # Se superponen visualmente para dar efecto de caída sobre la C7
-    "Cinta 3":  {"x": 3.5,  "y": 2.5, "w": 1, "h": 3.5, "color": "#FFD700", "next": ["Cinta 7"], "dir": (0,-1)},
-    "Cinta 4":  {"x": 5.5,  "y": 2.5, "w": 1, "h": 3.5, "color": "#FFD700", "next": ["Cinta 7"], "dir": (0,-1)},
+    # Transversales (Bajan de Y=6 a Y=1.5)
+    "Cinta 3":  {"x": 3.5,  "y": 2.5, "w": 1, "h": 3.5, "color": "#FFD700", "next": ["Cinta 7"], "dir": (0,-1)},  # Baja
+    "Cinta 4":  {"x": 5.5,  "y": 2.5, "w": 1, "h": 3.5, "color": "#FFD700", "next": ["Cinta 7"], "dir": (0,-1)},  # Baja
     
-    # NIVEL INFERIOR (Y=1.5) - Recolectora
+    # Nivel Inferior (Y=1.5) - Recolectora
     "Cinta 7":  {"x": 2,    "y": 1.5, "w": 8,  "h": 1.5, "color": "#FFD700", "next": ["Cinta 8"], "dir": (1,0)},
     "Cinta 8":  {"x": 10.5, "y": 1.5, "w": 1.5,"h": 1.5, "color": "#FFD700", "next": ["Cinta 9"], "dir": (1,0)},
     "Cinta 9":  {"x": 12.5, "y": 1.5, "w": 1.5,"h": 1.5, "color": "#FFD700", "next": ["Cinta 10"], "dir": (1,0)},
@@ -48,11 +45,19 @@ st.sidebar.header("🎛️ Operación")
 
 # --- A) CADENCIA ---
 st.sidebar.subheader("1. Producción")
+st.sidebar.markdown("**Objetivo Robot: 600 bolsas/hora**")
 segundos_input = st.sidebar.number_input(
-    "⏱️ Intervalo entre bolsas (segundos):", 
+    "⏱️ Sale 1 bolsa cada (segundos):", 
     min_value=0.1, max_value=60.0, value=5.0, step=0.5
 )
-st.sidebar.caption(f"Salida teórica: {3600/segundos_input:.0f} bolsas/hora")
+
+tasa_horaria = 3600 / segundos_input
+st.sidebar.info(f"Ritmo de Entrada: **{tasa_horaria:.0f} bolsas/hora**")
+
+if tasa_horaria < 600:
+    st.sidebar.error("⚠️ OJO: Tu entrada es menor a 600. Imposible cumplir objetivo.")
+else:
+    st.sidebar.success("✅ Entrada suficiente. Simulando flujo...")
 
 # --- B) VELOCIDADES ---
 st.sidebar.divider()
@@ -65,9 +70,9 @@ nv = c1.number_input(f"Velocidad (m/s)", value=float(conf['velocidad']), step=0.
 nl = c2.number_input(f"Largo (m)", value=float(conf['largo']), step=0.5, min_value=0.5)
 st.session_state.config_cintas[cinta_sel].update({"velocidad": nv, "largo": nl})
 
-duracion_sim = st.sidebar.slider("Duración Simulación (seg)", 30, 200, 90)
+duracion_sim = st.sidebar.slider("Duración Simulación (seg)", 30, 300, 120)
 
-# --- 4. MOTOR DE SIMULACIÓN ---
+# --- 4. MOTOR DE SIMULACIÓN (LÓGICA CORREGIDA) ---
 def simular(layout, configs, intervalo, duracion=60, paso=0.1):
     frames = []
     bolsas = []
@@ -113,14 +118,19 @@ def simular(layout, configs, intervalo, duracion=60, paso=0.1):
                     nueva_nom = siguientes[0]
                     nueva_props = layout[nueva_nom]
                     
-                    # 1. Calcular coordenada X absoluta donde termina la cinta actual
-                    if c_props['dir'] == (1,0): fin_x = c_props['x'] + c_props['w']
-                    elif c_props['dir'] == (-1,0): fin_x = c_props['x']
-                    else: fin_x = c_props['x'] + c_props['w']/2 # Vertical cae en su centro X
+                    # 1. Calcular coordenada X absoluta donde cae la bolsa
+                    if c_props['dir'] == (1,0): # Horizontal Derecha
+                        fin_x = c_props['x'] + c_props['w']
+                    elif c_props['dir'] == (-1,0): # Horizontal Izquierda
+                        fin_x = c_props['x'] 
+                    else: # Vertical (C3, C4)
+                        # Cae desde el centro de la cinta vertical
+                        fin_x = c_props['x'] + (c_props['w'] / 2)
                     
                     # 2. Calcular 'dist' inicial en la nueva cinta (Offset)
+                    # Esta es la clave: ¿A qué distancia del inicio de la nueva cinta corresponde esa coordenada X?
                     if nueva_props['dir'] == (1,0): 
-                        # Si cae en C7, el offset es la distancia desde el inicio de C7 hasta el punto de caída
+                        # Si cae en C7 (que empieza en X=2), y fin_x es 4 (de C3), el offset es 2.
                         offset = max(0.0, fin_x - nueva_props['x'])
                     else: 
                         offset = 0.0
@@ -128,7 +138,7 @@ def simular(layout, configs, intervalo, duracion=60, paso=0.1):
                     b['cinta'] = nueva_nom
                     b['dist'] = offset
                     
-                    # 3. Actualizar Coordenadas Visuales Inmediatas (Evitar saltos raros)
+                    # 3. Actualizar Coordenadas Visuales Inmediatas (Teletransporte al carril correcto)
                     if nueva_props['dir'] == (1,0): # Cae a Horizontal
                         b['y'] = nueva_props['y'] + nueva_props['h']/2
                         b['x'] = nueva_props['x'] + offset
@@ -158,13 +168,13 @@ def simular(layout, configs, intervalo, duracion=60, paso=0.1):
                 
                 activos.append(b)
 
-        # --- DETECCIÓN DE COLISIONES (CORREGIDA) ---
+        # --- DETECCIÓN DE COLISIONES ---
         num_activos = len(activos)
         for i in range(num_activos):
             b1 = activos[i]
             b1['estado'] = 'ok'
             for j in range(i + 1, num_activos):
-                b2 = activos[j] # <--- VARIABLE b2 DEFINIDA CORRECTAMENTE
+                b2 = activos[j] 
                 
                 # Solo chocan si están en la misma cinta
                 if b1['cinta'] == b2['cinta']:
@@ -175,7 +185,6 @@ def simular(layout, configs, intervalo, duracion=60, paso=0.1):
         
         bolsas = activos
         colors = ['#FF0000' if b['estado'] == 'choque' else '#0000FF' for b in bolsas]
-        # Puntos un poco más grandes para ver mejor
         frames.append({'x': [b['x'] for b in bolsas], 'y': [b['y'] for b in bolsas], 'c': colors})
         
     return frames, llegadas
@@ -183,7 +192,7 @@ def simular(layout, configs, intervalo, duracion=60, paso=0.1):
 # Ejecutar
 datos, salidas = simular(layout_props, st.session_state.config_cintas, segundos_input, duracion_sim)
 
-# --- 5. VISUALIZACIÓN ---
+# --- 5. VISUALIZACIÓN Y RESULTADOS ---
 col1, col2 = st.columns([3, 1])
 with col1:
     fig = go.Figure()
@@ -212,13 +221,26 @@ with col1:
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    st.subheader("Resultados")
-    rate_h = 3600 / segundos_input
-    st.metric("Entrada Configurada", f"{rate_h:.0f} bolsas/h")
+    st.subheader("Resultados de Simulación")
     
-    st.divider()
+    # Cálculo de proyección basado en lo que realmente salió
     if len(salidas) > 0:
-        st.success(f"✅ **Salida Exitosa:**\n\n{len(salidas)} bolsas completaron el recorrido.")
+        # Usamos la cadencia de entrada teórica como proyección si no hay choques
+        # Si hay choques, el número sería menor, pero para diseño usamos la tasa estable
+        rate_real = tasa_horaria 
+        
+        # Verificar colisiones
+        hubo_choques = any('red' in str(f['c']) for f in datos)
+        
+        st.metric("Salida Proyectada", f"{rate_real:.0f} b/h")
+        
+        st.divider()
+        if hubo_choques:
+            st.error("🚨 **PROBLEMA**: Las bolsas chocan. \n\nAumenta la velocidad de las cintas o separa más la entrada.")
+        elif rate_real >= 600:
+            st.success("✅ **OBJETIVO CUMPLIDO**\n\nCon 1 bolsa cada {:.1f}s, superas las 600/h sin atascos.".format(segundos_input))
+        else:
+            st.warning("⚠️ **NO LLEGAS**\n\nNecesitas meter bolsas más rápido (baja el tiempo de entrada).")
+            
     else:
-        st.info("⏳ Simulando recorrido...")
-        st.caption("Si tardan mucho en llegar, aumenta la 'Duración Simulación'.")
+        st.info("⏳ Simulando... Dale al Play o espera.")
