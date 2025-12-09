@@ -117,16 +117,22 @@ def simular(layout, configs, intervalo, duracion=60, paso=0.1):
                     nueva_nom = siguientes[0]
                     nueva_props = layout[nueva_nom]
                     
+                    # Calcular dónde termina la cinta actual (X visual)
                     if c_props['dir'] == (1,0): fin_x = c_props['x'] + c_props['w']
                     elif c_props['dir'] == (-1,0): fin_x = c_props['x']
                     else: fin_x = c_props['x'] + c_props['w']/2 
                     
-                    if nueva_props['dir'] == (1,0): offset = max(0.0, fin_x - nueva_props['x'])
-                    else: offset = 0.0
+                    # Calcular Offset en nueva cinta (Para caer en el lugar correcto de C7)
+                    if nueva_props['dir'] == (1,0): 
+                        # Si entra a C7, calculamos la diferencia entre donde cae y donde empieza C7
+                        offset = max(0.0, fin_x - nueva_props['x'])
+                    else: 
+                        offset = 0.0
                     
                     b['cinta'] = nueva_nom
                     b['dist'] = offset
                     
+                    # Actualizar visual inmediatamente
                     if nueva_props['dir'] == (1,0):
                         b['y'] = nueva_props['y'] + nueva_props['h']/2
                         b['x'] = nueva_props['x'] + offset
@@ -156,7 +162,7 @@ def simular(layout, configs, intervalo, duracion=60, paso=0.1):
             b1 = activos[i]
             b1['estado'] = 'ok'
             for j in range(i + 1, len(activos)):
-                b2 = activos[j] # <--- ESTA LÍNEA FALTABA
+                b2 = activos[j] # <--- ¡ESTA LÍNEA FALTABA Y CAUSABA EL ERROR!
                 if b1['cinta'] == b2['cinta'] and abs(b1['dist'] - b2['dist']) < 0.8:
                     b1['estado'] = 'choque'
                     b2['estado'] = 'choque'
